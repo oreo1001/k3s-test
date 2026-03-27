@@ -21,17 +21,31 @@ key_file=~/.oci/oci_api_key.pem
 
 ### 3. OCI 콘솔에서 미리 확인할 OCID
 - Compartment OCID: Identity → Compartments
-- Subnet OCID: Networking → Virtual Cloud Networks → Default VCN → Subnets (Public Subnet)
-- Image OCID: Compute → Images → Platform Images → Ubuntu 22.04 (aarch64)
+- Subnet OCID: Networking → Virtual Cloud Networks → Default VCN → Subnets → **Public Subnet**
 - Security List OCID: Networking → VCN → Security Lists → Default Security List
+- Image OCID: 01_provision.yml이 자동 조회하므로 불필요
 
-### 4. Ansible 및 OCI 컬렉션 설치
+### 4. SSH 키 생성 (없는 경우)
 ```bash
-pip install ansible oci
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+```
+
+### 5. ~/.oci 설정
+```bash
+mkdir -p ~/.oci
+cp .oci/config ~/.oci/config
+cp .oci/*.pem ~/.oci/
+chmod 600 ~/.oci/*
+```
+
+### 6. Ansible 및 OCI 컬렉션 설치
+```bash
+pipx install ansible-core
+pipx inject ansible-core oci
 ansible-galaxy collection install -r requirements.yml
 ```
 
-### 5. group_vars/all.yml에 OCID 입력
+### 7. group_vars/all.yml에 OCID 입력
 ```bash
 # 평문으로 사용하거나 vault로 암호화
 ansible-vault encrypt group_vars/all.yml
@@ -41,13 +55,13 @@ ansible-vault encrypt group_vars/all.yml
 
 ```bash
 # 1. OCI Security List 포트 오픈
-ansible-playbook playbooks/03_security.yml
+ansible-playbook playbooks/03_security.yml --ask-vault-pass
 
-# 2. 인스턴스 4대 생성 (약 5분)
-ansible-playbook playbooks/01_provision.yml
+# 2. 인스턴스 4대 생성 (약 5분) - Out of host capacity 시 재시도
+ansible-playbook playbooks/01_provision.yml --ask-vault-pass
 
 # 3. k3s 설치 (약 10분)
-ansible-playbook playbooks/02_install_k3s.yml
+ansible-playbook playbooks/02_install_k3s.yml --ask-vault-pass
 
 # 4. 로컬에서 kubectl 사용
 export KUBECONFIG=./kubeconfig
@@ -66,6 +80,6 @@ group_vars/all.yml에서 특정 워커의 shape 변경:
 ## 삭제 (크레딧 절약)
 
 ```bash
-ansible-playbook playbooks/99_destroy.yml
+ansible-playbook playbooks/99_destroy.yml --ask-vault-pass
 ```
 # k3s-test

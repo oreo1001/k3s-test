@@ -8,6 +8,9 @@
   connection: local
   gather_facts: false
 
+  vars_files:
+    - ../group_vars/all.yml
+
   tasks:
     # ----------------------------------------------------------
     # Ubuntu 24.04 aarch64 이미지 OCID 자동 조회
@@ -31,13 +34,25 @@
         msg: "이미지: {{ image_facts.images[0].display_name }} ({{ instance_image_ocid }})"
 
     # ----------------------------------------------------------
+    # Availability Domain 조회
+    # ----------------------------------------------------------
+    - name: Availability Domain 조회
+      oracle.oci.oci_identity_availability_domain_facts:
+        compartment_id: "{{ compartment_ocid }}"
+      register: ad_facts
+
+    - name: AD 이름 설정
+      set_fact:
+        availability_domain: "{{ ad_facts.availability_domains[0].name }}"
+
+    # ----------------------------------------------------------
     # 마스터 노드 생성
     # ----------------------------------------------------------
     - name: k8s-master 인스턴스 생성
       oracle.oci.oci_compute_instance:
         tenancy: "{{ oci_tenancy_ocid }}"
         compartment_id: "{{ compartment_ocid }}"
-        availability_domain: "{{ lookup('oracle.oci.oci_availability_domains', compartment_id=compartment_ocid, region=oci_region) | first }}"
+        availability_domain: "{{ availability_domain }}"
         display_name: "k8s-master"
         shape: "{{ master_shape }}"
         shape_config:
@@ -70,7 +85,7 @@
       oracle.oci.oci_compute_instance:
         tenancy: "{{ oci_tenancy_ocid }}"
         compartment_id: "{{ compartment_ocid }}"
-        availability_domain: "{{ lookup('oracle.oci.oci_availability_domains', compartment_id=compartment_ocid, region=oci_region) | first }}"
+        availability_domain: "{{ availability_domain }}"
         display_name: "k8s-worker-{{ item }}"
         shape: "{{ worker_shape }}"
         shape_config:

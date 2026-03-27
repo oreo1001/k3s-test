@@ -42,18 +42,19 @@ OCI(Oracle Cloud Infrastructure) 위에 Ansible로 k3s 쿠버네티스 클러스
 ## 실행 순서
 
 ```bash
-# 1. 의존성 설치
-pip install ansible oci
+# 1. 의존성 설치 (pipx 사용 - 시스템 Python 격리)
+pipx install ansible-core
+pipx inject ansible-core oci
 ansible-galaxy collection install -r requirements.yml
 
 # 2. OCI Security List 포트 오픈
-ansible-playbook playbooks/03_security.yml
+ansible-playbook playbooks/03_security.yml --ask-vault-pass
 
 # 3. 인스턴스 4대 생성 (약 5분) → hosts.ini 자동 생성됨
-ansible-playbook playbooks/01_provision.yml
+ansible-playbook playbooks/01_provision.yml --ask-vault-pass
 
 # 4. k3s 설치 (약 10분)
-ansible-playbook playbooks/02_install_k3s.yml
+ansible-playbook playbooks/02_install_k3s.yml --ask-vault-pass
 
 # 5. kubectl 확인
 export KUBECONFIG=./kubeconfig
@@ -73,11 +74,25 @@ ansible-playbook playbooks/01_provision.yml --ask-vault-pass
 ```
 
 ### .oci/config
-OCI SDK 인증 파일. API Key 방식 사용. key_file 경로가 실제 .pem 파일 위치와 일치해야 함.
+OCI SDK 인증 파일. API Key 방식 사용. WSL에서 실행 시 홈 디렉토리에 복사 필요:
+```bash
+mkdir -p ~/.oci
+cp .oci/config ~/.oci/config
+cp .oci/*.pem ~/.oci/
+chmod 600 ~/.oci/*
+```
+key_file 경로가 실제 .pem 파일 위치와 일치해야 함 (`/home/username/.oci/...` 형식).
+
+### SSH 키 생성
+인스턴스 SSH 접속용 키페어. 없으면 생성:
+```bash
+ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+```
 
 ## 주의사항
 
 - **GPU shape 사용 시**: VM.GPU.A10.1 / VM.GPU3.1 은 x86 아키텍처 → image_ocid도 amd64 버전으로 변경 필요
 - **hosts.ini**: 01_provision.yml 실행 전에는 placeholder(`MASTER_PUBLIC_IP` 등)가 들어있음, 직접 수정 불필요
-- **subnet_ocid**: `group_vars/all.yml`의 값이 VCN OCID로 잘못 들어가 있음 → Public Subnet OCID로 교체 필요
 - **instance_image_ocid**: 01_provision.yml에서 자동 조회하므로 group_vars/all.yml의 placeholder 값은 무시됨
+- **Out of host capacity**: Ampere ARM 인스턴스 용량 부족 시 자주 발생. 잠시 후 재시도하거나 다른 리전(ap-tokyo-1 등) 시도
+- **group_vars/all.yml 미로드**: `hosts: localhost` 플레이북(01, 03, 99)은 인벤토리 없이 실행되어 group_vars를 자동으로 읽지 않음 → `vars_files`로 명시적 로드 처리됨

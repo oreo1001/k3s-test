@@ -11,8 +11,8 @@
   connection: local
   gather_facts: false
 
-  vars:
-    security_list_ocid: "ocid1.securitylist.oc1..xxxxxxxxx"  # 콘솔에서 확인
+  vars_files:
+    - ../group_vars/all.yml
 
   tasks:
     - name: Security List에 k8s 필수 포트 추가
