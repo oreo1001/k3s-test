@@ -16,3 +16,4 @@ kubeconfig                        # 클러스터 설치 후 자동 생성
 
 # 임시파일
 *.retry
+terraform/terraform.tfvars
