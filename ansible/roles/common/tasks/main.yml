@@ -13,8 +13,8 @@
       - ca-certificates
       - gnupg
       - lsb-release
-      - nfs-common          # PVC 마운트용
-      - open-iscsi          # Longhorn 스토리지용 (나중에 사용할 수 있음)
+      - nfs-common
+      - open-iscsi
     state: present
     update_cache: yes
   become: true
@@ -40,7 +40,7 @@
   shell: netfilter-persistent save
   become: true
   changed_when: false
-  ignore_errors: true   # 일부 이미지에 없을 수 있음
+  ignore_errors: true
 
 - name: ip6tables 규칙 전체 초기화
   shell: |

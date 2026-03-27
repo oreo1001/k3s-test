@@ -39,9 +39,9 @@
   become: true
 
 # ----------------------------------------------------------
-# kubeconfig 로컬 및 워커 공유를 위한 token 수집
+# kubeconfig 수집 및 워커 공유를 위한 token 저장
 # ----------------------------------------------------------
-- name: k3s token 읽기
+- name: k3s node-token 읽기
   slurp:
     src: /var/lib/rancher/k3s/server/node-token
   register: k3s_node_token
