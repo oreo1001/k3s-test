@@ -1,0 +1,52 @@
+---
+# ============================================================
+# k3s 설치 플레이북
+# 실행: ansible-playbook playbooks/02_install_k3s.yml
+# ============================================================
+
+- name: 모든 노드 공통 초기화
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  serial: 1    # 순서대로 실행 (병렬 실행 시 iptables 충돌 방지)
+  roles:
+    - common
+
+- name: 마스터 노드에 k3s 서버 설치
+  hosts: master
+  become: true
+  gather_facts: true
+  roles:
+    - master
+
+- name: 워커 노드에 k3s 에이전트 설치
+  hosts: workers
+  become: true
+  gather_facts: true
+  roles:
+    - worker
+
+- name: 최종 클러스터 상태 확인
+  hosts: master
+  become: true
+  gather_facts: false
+  tasks:
+    - name: 모든 워커 노드가 Ready 될 때까지 대기
+      command: k3s kubectl get nodes
+      register: result
+      until: result.stdout_lines | select('search', 'NotReady') | list | length == 0
+      retries: 20
+      delay: 15
+      changed_when: false
+
+    - name: 최종 노드 상태
+      debug:
+        msg: "{{ result.stdout_lines }}"
+
+    - name: kubeconfig 사용 방법 안내
+      debug:
+        msg:
+          - "=== 클러스터 설치 완료 ==="
+          - "로컬에서 kubeconfig 사용:"
+          - "  export KUBECONFIG=./kubeconfig"
+          - "  kubectl get nodes"

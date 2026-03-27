@@ -1,0 +1,40 @@
+---
+# ============================================================
+# 인스턴스 전체 삭제 (크레딧 절약용)
+# 실행: ansible-playbook playbooks/99_destroy.yml
+# ============================================================
+- name: OCI 인스턴스 전체 삭제
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: 삭제 전 확인
+      pause:
+        prompt: |
+          !! 경고: k8s 클러스터 인스턴스 4대를 모두 삭제합니다 !!
+          계속하려면 Enter, 취소하려면 Ctrl+C
+
+    - name: 실행 중인 인스턴스 목록 조회
+      oracle.oci.oci_compute_instance_facts:
+        compartment_id: "{{ compartment_ocid }}"
+        lifecycle_state: RUNNING
+      register: instances
+
+    - name: k8s 클러스터 인스턴스만 필터링
+      set_fact:
+        k8s_instances: >-
+          {{ instances.instances | selectattr('freeform_tags.cluster', 'defined')
+             | selectattr('freeform_tags.cluster', 'equalto', 'k8s') | list }}
+
+    - name: 인스턴스 삭제
+      oracle.oci.oci_compute_instance:
+        instance_id: "{{ item.id }}"
+        state: absent
+      loop: "{{ k8s_instances }}"
+      loop_control:
+        label: "{{ item.display_name }}"
+
+    - name: 삭제 완료
+      debug:
+        msg: "삭제된 인스턴스: {{ k8s_instances | map(attribute='display_name') | list }}"

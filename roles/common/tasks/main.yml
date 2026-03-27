@@ -1,0 +1,109 @@
+---
+# ============================================================
+# 모든 노드 공통 초기화
+# ============================================================
+
+- name: apt 업데이트 및 필수 패키지 설치
+  apt:
+    name:
+      - curl
+      - wget
+      - vim
+      - git
+      - ca-certificates
+      - gnupg
+      - lsb-release
+      - nfs-common          # PVC 마운트용
+      - open-iscsi          # Longhorn 스토리지용 (나중에 사용할 수 있음)
+    state: present
+    update_cache: yes
+  become: true
+
+# ----------------------------------------------------------
+# OCI Ubuntu는 iptables가 기본 활성화돼 있어서 반드시 해제
+# ----------------------------------------------------------
+- name: iptables 규칙 전체 초기화
+  shell: |
+    iptables -F
+    iptables -X
+    iptables -t nat -F
+    iptables -t nat -X
+    iptables -t mangle -F
+    iptables -t mangle -X
+    iptables -P INPUT ACCEPT
+    iptables -P FORWARD ACCEPT
+    iptables -P OUTPUT ACCEPT
+  become: true
+  changed_when: false
+
+- name: iptables 규칙 영구 저장
+  shell: netfilter-persistent save
+  become: true
+  changed_when: false
+  ignore_errors: true   # 일부 이미지에 없을 수 있음
+
+- name: ip6tables 규칙 전체 초기화
+  shell: |
+    ip6tables -F
+    ip6tables -X
+    ip6tables -P INPUT ACCEPT
+    ip6tables -P FORWARD ACCEPT
+    ip6tables -P OUTPUT ACCEPT
+  become: true
+  changed_when: false
+
+# ----------------------------------------------------------
+# 커널 파라미터 설정 (k8s 필수)
+# ----------------------------------------------------------
+- name: 커널 모듈 로드 (br_netfilter, overlay)
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+  become: true
+
+- name: 부팅 시 커널 모듈 자동 로드 설정
+  copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      br_netfilter
+      overlay
+  become: true
+
+- name: sysctl 파라미터 설정
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: yes
+    reload: yes
+  loop:
+    - { key: "net.bridge.bridge-nf-call-iptables",  value: "1" }
+    - { key: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
+    - { key: "net.ipv4.ip_forward",                 value: "1" }
+  become: true
+
+# ----------------------------------------------------------
+# Swap 비활성화 (k8s 요구사항)
+# ----------------------------------------------------------
+- name: Swap 즉시 비활성화
+  command: swapoff -a
+  become: true
+  changed_when: false
+
+- name: fstab에서 swap 영구 제거
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\s+swap\s+.*)$'
+    replace: '# \1'
+  become: true
+
+# ----------------------------------------------------------
+# 타임존 설정
+# ----------------------------------------------------------
+- name: 타임존을 Asia/Seoul로 설정
+  timezone:
+    name: Asia/Seoul
+  become: true

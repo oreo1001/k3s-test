@@ -1,0 +1,12 @@
+# OCI 자격증명
+.oci/
+
+# Ansible 민감정보 (vault 미사용 시)
+group_vars/all.yml
+
+# 클러스터 생성 후 생성되는 파일
+kubeconfig
+inventory/hosts.ini
+
+# Ansible 임시파일
+*.retry

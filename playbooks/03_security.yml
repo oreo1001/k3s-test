@@ -1,0 +1,54 @@
+---
+# ============================================================
+# OCI Security List 포트 오픈 (Ansible로 자동화)
+# 실행: ansible-playbook playbooks/03_security.yml
+#
+# 대안: OCI 콘솔 > VCN > Security Lists > Default Security List
+#       에서 아래 포트를 수동으로 Ingress Rule에 추가해도 됩니다
+# ============================================================
+- name: OCI Security List 설정
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    security_list_ocid: "ocid1.securitylist.oc1..xxxxxxxxx"  # 콘솔에서 확인
+
+  tasks:
+    - name: Security List에 k8s 필수 포트 추가
+      oracle.oci.oci_network_security_list:
+        security_list_id: "{{ security_list_ocid }}"
+        ingress_security_rules:
+          # SSH
+          - protocol: "6"   # TCP
+            source: "0.0.0.0/0"
+            tcp_options:
+              destination_port_range: { min: 22, max: 22 }
+          # k3s API Server
+          - protocol: "6"
+            source: "0.0.0.0/0"
+            tcp_options:
+              destination_port_range: { min: 6443, max: 6443 }
+          # HTTP/HTTPS (앱 배포용)
+          - protocol: "6"
+            source: "0.0.0.0/0"
+            tcp_options:
+              destination_port_range: { min: 80, max: 80 }
+          - protocol: "6"
+            source: "0.0.0.0/0"
+            tcp_options:
+              destination_port_range: { min: 443, max: 443 }
+          # NodePort 범위
+          - protocol: "6"
+            source: "0.0.0.0/0"
+            tcp_options:
+              destination_port_range: { min: 30000, max: 32767 }
+          # 클러스터 내부 통신 (전체 허용)
+          - protocol: "all"
+            source: "10.0.0.0/16"   # Default VCN CIDR에 맞게 수정
+        state: present
+      register: security_result
+
+    - name: Security List 업데이트 완료
+      debug:
+        msg: "포트 오픈 완료: 22, 6443, 80, 443, 30000-32767"

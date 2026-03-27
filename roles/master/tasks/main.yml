@@ -1,0 +1,102 @@
+---
+# ============================================================
+# k3s 마스터 노드 설치
+# ============================================================
+
+- name: k3s 마스터 설치 여부 확인
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: k3s 마스터 설치
+  shell: |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION="{{ k3s_version }}" \
+      sh -s - server \
+      --token="{{ k3s_token }}" \
+      --cluster-cidr="{{ pod_cidr }}" \
+      --service-cidr="{{ service_cidr }}" \
+      --disable=traefik \
+      --disable=servicelb \
+      --write-kubeconfig-mode=644 \
+      --node-name=k8s-master
+  become: true
+  when: not k3s_binary.stat.exists
+
+- name: k3s 서비스 시작 및 자동 시작 등록
+  systemd:
+    name: k3s
+    state: started
+    enabled: true
+  become: true
+
+- name: k3s 준비될 때까지 대기 (최대 3분)
+  command: k3s kubectl get nodes
+  register: result
+  until: result.rc == 0
+  retries: 18
+  delay: 10
+  become: true
+
+# ----------------------------------------------------------
+# kubeconfig 로컬 및 워커 공유를 위한 token 수집
+# ----------------------------------------------------------
+- name: k3s token 읽기
+  slurp:
+    src: /var/lib/rancher/k3s/server/node-token
+  register: k3s_node_token
+  become: true
+
+- name: token을 전역 변수로 저장
+  set_fact:
+    k3s_join_token: "{{ k3s_node_token.content | b64decode | trim }}"
+
+- name: 마스터 Private IP 저장
+  set_fact:
+    master_private_ip: "{{ ansible_default_ipv4.address }}"
+
+# ----------------------------------------------------------
+# kubectl 설정 (ubuntu 유저용)
+# ----------------------------------------------------------
+- name: .kube 디렉토리 생성
+  file:
+    path: "/home/ubuntu/.kube"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+  become: true
+
+- name: kubeconfig 복사
+  copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: /home/ubuntu/.kube/config
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+    remote_src: true
+  become: true
+
+- name: kubeconfig의 server 주소를 Public IP로 변경
+  replace:
+    path: /home/ubuntu/.kube/config
+    regexp: 'https://127.0.0.1:6443'
+    replace: "https://{{ ansible_host }}:6443"
+  become: true
+
+- name: kubeconfig를 로컬로 가져오기
+  fetch:
+    src: /home/ubuntu/.kube/config
+    dest: ./kubeconfig
+    flat: true
+  become: true
+
+- name: 노드 상태 출력
+  command: k3s kubectl get nodes -o wide
+  register: nodes
+  become: true
+  changed_when: false
+
+- name: 클러스터 노드 현황
+  debug:
+    msg: "{{ nodes.stdout_lines }}"

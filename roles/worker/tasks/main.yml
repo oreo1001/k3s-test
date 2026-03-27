@@ -1,0 +1,36 @@
+---
+# ============================================================
+# k3s 워커 노드 설치
+# ============================================================
+
+- name: k3s 워커 설치 여부 확인
+  stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: 마스터의 join token 가져오기
+  set_fact:
+    k3s_join_token: "{{ hostvars[groups['master'][0]]['k3s_join_token'] }}"
+    master_private_ip: "{{ hostvars[groups['master'][0]]['master_private_ip'] }}"
+
+- name: k3s 워커 설치 및 클러스터 조인
+  shell: |
+    curl -sfL https://get.k3s.io | \
+      INSTALL_K3S_VERSION="{{ k3s_version }}" \
+      K3S_URL="https://{{ master_private_ip }}:6443" \
+      K3S_TOKEN="{{ k3s_join_token }}" \
+      sh -s - agent \
+      --node-name="{{ inventory_hostname }}"
+  become: true
+  when: not k3s_binary.stat.exists
+
+- name: k3s-agent 서비스 시작 및 자동 시작 등록
+  systemd:
+    name: k3s-agent
+    state: started
+    enabled: true
+  become: true
+
+- name: 워커 조인 완료 확인
+  debug:
+    msg: "{{ inventory_hostname }} 클러스터 조인 완료 (마스터: {{ master_private_ip }})"

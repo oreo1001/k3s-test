@@ -1,0 +1,126 @@
+---
+# ============================================================
+# OCI 인스턴스 생성 플레이북
+# 실행: ansible-playbook playbooks/01_provision.yml
+# ============================================================
+- name: OCI 인스턴스 프로비저닝
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # ----------------------------------------------------------
+    # Ubuntu 24.04 aarch64 이미지 OCID 자동 조회
+    # ----------------------------------------------------------
+    - name: Ubuntu 24.04 ARM 이미지 조회
+      oracle.oci.oci_compute_image_facts:
+        compartment_id: "{{ compartment_ocid }}"
+        operating_system: "Canonical Ubuntu"
+        operating_system_version: "24.04"
+        shape: "{{ master_shape }}"
+        sort_by: TIMECREATED
+        sort_order: DESC
+      register: image_facts
+
+    - name: 최신 이미지 OCID 설정
+      set_fact:
+        instance_image_ocid: "{{ image_facts.images[0].id }}"
+
+    - name: 사용할 이미지 확인
+      debug:
+        msg: "이미지: {{ image_facts.images[0].display_name }} ({{ instance_image_ocid }})"
+
+    # ----------------------------------------------------------
+    # 마스터 노드 생성
+    # ----------------------------------------------------------
+    - name: k8s-master 인스턴스 생성
+      oracle.oci.oci_compute_instance:
+        tenancy: "{{ oci_tenancy_ocid }}"
+        compartment_id: "{{ compartment_ocid }}"
+        availability_domain: "{{ lookup('oracle.oci.oci_availability_domains', compartment_id=compartment_ocid, region=oci_region) | first }}"
+        display_name: "k8s-master"
+        shape: "{{ master_shape }}"
+        shape_config:
+          ocpus: "{{ master_ocpus }}"
+          memory_in_gbs: "{{ master_memory_gbs }}"
+        source_details:
+          source_type: image
+          image_id: "{{ instance_image_ocid }}"
+        create_vnic_details:
+          subnet_id: "{{ subnet_ocid }}"
+          assign_public_ip: true
+          display_name: "k8s-master-vnic"
+        metadata:
+          ssh_authorized_keys: "{{ ssh_public_key }}"
+          user_data: "{{ lookup('file', '../scripts/cloud-init.sh') | b64encode }}"
+        freeform_tags:
+          role: master
+          cluster: k8s
+        state: present
+      register: master_result
+
+    - name: 마스터 노드 Public IP 출력
+      debug:
+        msg: "Master IP: {{ master_result.instance.primary_public_ip }}"
+
+    # ----------------------------------------------------------
+    # 워커 노드 3대 생성
+    # ----------------------------------------------------------
+    - name: k8s-worker 인스턴스 생성 (3대)
+      oracle.oci.oci_compute_instance:
+        tenancy: "{{ oci_tenancy_ocid }}"
+        compartment_id: "{{ compartment_ocid }}"
+        availability_domain: "{{ lookup('oracle.oci.oci_availability_domains', compartment_id=compartment_ocid, region=oci_region) | first }}"
+        display_name: "k8s-worker-{{ item }}"
+        shape: "{{ worker_shape }}"
+        shape_config:
+          ocpus: "{{ worker_ocpus }}"
+          memory_in_gbs: "{{ worker_memory_gbs }}"
+        source_details:
+          source_type: image
+          image_id: "{{ instance_image_ocid }}"
+        create_vnic_details:
+          subnet_id: "{{ subnet_ocid }}"
+          assign_public_ip: true
+          display_name: "k8s-worker-{{ item }}-vnic"
+        metadata:
+          ssh_authorized_keys: "{{ ssh_public_key }}"
+          user_data: "{{ lookup('file', '../scripts/cloud-init.sh') | b64encode }}"
+        freeform_tags:
+          role: worker
+          cluster: k8s
+          index: "{{ item }}"
+        state: present
+      loop: [0, 1, 2]
+      register: worker_results
+
+    # ----------------------------------------------------------
+    # 인벤토리 파일 자동 생성
+    # ----------------------------------------------------------
+    - name: hosts.ini 자동 생성
+      template:
+        src: ../inventory/hosts.ini.j2
+        dest: ../inventory/hosts.ini
+      vars:
+        master_ip: "{{ master_result.instance.primary_public_ip }}"
+        worker_ips: "{{ worker_results.results | map(attribute='instance.primary_public_ip') | list }}"
+
+    - name: 모든 노드 IP 출력
+      debug:
+        msg:
+          - "Master : {{ master_result.instance.primary_public_ip }}"
+          - "Worker0: {{ worker_results.results[0].instance.primary_public_ip }}"
+          - "Worker1: {{ worker_results.results[1].instance.primary_public_ip }}"
+          - "Worker2: {{ worker_results.results[2].instance.primary_public_ip }}"
+
+    - name: SSH 접속 가능할 때까지 대기
+      wait_for:
+        host: "{{ item }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      loop:
+        - "{{ master_result.instance.primary_public_ip }}"
+        - "{{ worker_results.results[0].instance.primary_public_ip }}"
+        - "{{ worker_results.results[1].instance.primary_public_ip }}"
+        - "{{ worker_results.results[2].instance.primary_public_ip }}"
